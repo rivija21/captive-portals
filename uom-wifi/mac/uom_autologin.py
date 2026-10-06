@@ -392,6 +392,25 @@ def login(start_url, username, password):
     return "no-form"
 
 
+CNA_PROCESS = "Captive Network Assistant.app/Contents/MacOS/"
+
+
+def close_login_popup():
+    """Closes macOS's own "Join UoM_Wireless" pop-up after we've logged in.
+
+    It opens at the same moment the script starts and never notices that the login
+    already happened, so it would sit there asking for the password. It can also
+    appear a few seconds late, so watch for it briefly.
+    """
+    for _ in range(15):
+        if subprocess.run(["pgrep", "-f", CNA_PROCESS], capture_output=True).returncode == 0:
+            time.sleep(1)  # let it finish opening so it doesn't come straight back
+            subprocess.run(["pkill", "-f", CNA_PROCESS], capture_output=True)
+            log("Closed macOS's login pop-up (already logged in).")
+            return
+        time.sleep(1)
+
+
 # ----------------------------------------------------------------------- main
 
 def main():
@@ -440,6 +459,7 @@ def main():
                 notify("Logged in to UoM Wi-Fi automatically ✓")
                 state.pop("last_failure", None)
                 save_state(state)
+                close_login_popup()
                 return 0
 
     first_failure = "last_failure" not in state

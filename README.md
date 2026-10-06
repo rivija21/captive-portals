@@ -63,7 +63,8 @@ log you in, the log (see the end of this page) shows what went wrong.
   controller page) and submits the form the same way its Submit button does.
 - Mac only: until you log in, macOS blocks ordinary programs from using the campus Wi-Fi.
   The script sends its requests straight through the Wi-Fi interface and asks the campus
-  DNS server for addresses itself, like Apple's own login pop-up does.
+  DNS server for addresses itself, like Apple's own login pop-up does. After logging in it
+  closes that "Join UoM_Wireless" pop-up, which otherwise keeps asking for the password.
 
 ### If it doesn't log in
 
