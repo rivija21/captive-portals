@@ -8,5 +8,3 @@ if [[ ! -f "$INSTALLED" ]]; then
   exit 1
 fi
 /usr/bin/python3 "$INSTALLED" --now --verbose
-echo
-echo "Full history: ~/Library/Logs/UoMAutoLogin/autologin.log"

@@ -46,7 +46,7 @@ cp "$HERE/uom_autologin.py" "$APP_DIR/uom_autologin.py"
 rm -f "$APP_DIR/state.json"
 echo "✓ Installed the script in $APP_DIR"
 
-# 3. Run it whenever the network changes (e.g. after waking up), and every 30 s.
+# 3. Run it whenever the network changes (e.g. after waking up), and every 5 minutes.
 cat > "$AGENT" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -58,15 +58,21 @@ cat > "$AGENT" <<EOF
     <string>/usr/bin/python3</string>
     <string>$APP_DIR/uom_autologin.py</string>
   </array>
+  <key>LaunchEvents</key>
+  <dict>
+    <key>com.apple.notifyd.matching</key>
+    <dict>
+      <key>network-change</key>
+      <dict><key>Notification</key><string>com.apple.system.config.network_change</string></dict>
+    </dict>
+  </dict>
   <key>WatchPaths</key>
   <array><string>/var/run/resolv.conf</string></array>
-  <key>StartInterval</key><integer>30</integer>
+  <key>StartInterval</key><integer>300</integer>
   <key>ProcessType</key><string>Background</string>
-  <key>StandardErrorPath</key><string>$HOME/Library/Logs/UoMAutoLogin/errors.log</string>
 </dict>
 </plist>
 EOF
-mkdir -p "$HOME/Library/Logs/UoMAutoLogin"
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null
 launchctl bootstrap "gui/$(id -u)" "$AGENT" || { echo "Couldn't start the background job."; exit 1; }
 echo "✓ Turned on automatic login (runs after every wake-up)"

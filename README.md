@@ -31,7 +31,7 @@ to finish, then run Set Up again. A "Background Items Added" notice for python3 
 3. Type your UoM Wi-Fi username and password into the box that appears.
 
 The Windows version is new and hasn't been tried on a real Windows PC yet. If it doesn't
-log you in, the log (see the end of this page) shows what went wrong.
+log you in, its log (see the end of this page) shows what went wrong.
 
 ### The files
 
@@ -55,7 +55,7 @@ log you in, the log (see the end of this page) shows what went wrong.
 ### How it works
 
 - A background job runs whenever the network changes or the computer wakes up, plus
-  regularly as a backstop (every 30 s on Mac, every 2 min on Windows). Mac: a LaunchAgent.
+  regularly as a backstop (every 5 min on Mac, every 2 min on Windows). Mac: a LaunchAgent.
   Windows: the Task Scheduler task "UoM WiFi Auto-Login".
 - It asks Apple's / Microsoft's connectivity check whether the internet works. If it does,
   it stops there.
@@ -68,9 +68,9 @@ log you in, the log (see the end of this page) shows what went wrong.
 
 ### If it doesn't log in
 
-Double-click **Log In Now** to see what happens. Every attempt is also logged:
+Double-click **Log In Now** to see what happens. The Mac version keeps no log, so this
+is the way to check on it.
 
-- Mac: `~/Library/Logs/UoMAutoLogin/` (Finder → Go → Go to Folder…)
-- Windows: `%LOCALAPPDATA%\UoMAutoLogin\Logs\` (paste into File Explorer's address bar)
-
-`autologin.log` lists each attempt, and `portal-page.html` is a copy of the login page it saw.
+The Windows version also logs every attempt in `%LOCALAPPDATA%\UoMAutoLogin\Logs\` (paste
+that into File Explorer's address bar): `autologin.log` lists each attempt, and
+`portal-page.html` is a copy of the login page it saw.

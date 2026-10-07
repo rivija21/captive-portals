@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Automatic login for the University of Moratuwa Wi-Fi (UoM_Wireless).
 
-A LaunchAgent runs this whenever the Mac's network changes (e.g. waking from
-sleep) and every 30 seconds as a backstop. A normal run costs one tiny request
-to Apple's captive-portal check. Only when that check fails *and* the Mac is on
+A LaunchAgent runs this when macOS reports a network change (e.g. waking from
+sleep or joining Wi-Fi) and every 5 minutes as a backstop, in case the portal
+drops the session while the Mac is awake. A normal run costs one tiny request
+to Apple's captive-portal check and writes nothing to disk. Only when that check fails *and* the Mac is on
 the UoM campus network does it fill in the Cisco login page at wlan.uom.lk,
 using the username and password that "Set Up.command" saved in the Keychain.
 
@@ -44,8 +45,6 @@ CAMPUS_DOMAIN = "uom.lk"
 TEST_HOSTS = set(filter(None, os.environ.get("UOM_TEST_HOSTS", "").split(",")))
 
 DATA_DIR = os.path.expanduser(os.environ.get("UOM_DATA_DIR", "~/Library/Application Support/UoMAutoLogin"))
-LOG_DIR = os.path.expanduser(os.environ.get("UOM_LOG_DIR", "~/Library/Logs/UoMAutoLogin"))
-LOG_FILE = os.path.join(LOG_DIR, "autologin.log")
 STATE_FILE = os.path.join(DATA_DIR, "state.json")
 FAIL_BACKOFF = 10 * 60  # after the portal rejects the login, wait before trying again
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
@@ -62,17 +61,10 @@ _PORTAL_TLS.verify_mode = ssl.CERT_NONE
 
 # ---------------------------------------------------------------- utilities
 
-def log(msg, quiet=False):
-    """Prints in verbose mode; writes to the log file unless `quiet`."""
+def say(msg):
+    """Shows progress when run by hand (Log In Now, Set Up); background runs stay silent."""
     if VERBOSE:
         print(msg, flush=True)
-    if quiet:
-        return
-    os.makedirs(LOG_DIR, exist_ok=True)
-    if os.path.exists(LOG_FILE) and os.path.getsize(LOG_FILE) > 256_000:
-        os.replace(LOG_FILE, LOG_FILE + ".old")
-    with open(LOG_FILE, "a") as f:
-        f.write(time.strftime("%Y-%m-%d %H:%M:%S  ") + msg + "\n")
 
 
 def notify(text):
@@ -80,11 +72,6 @@ def notify(text):
     subprocess.run(["osascript", "-e", script], capture_output=True)
 
 
-def save_snapshot(name, html):
-    """Keeps the last portal page on disk so the login can be debugged later."""
-    os.makedirs(LOG_DIR, exist_ok=True)
-    with open(os.path.join(LOG_DIR, name), "w") as f:
-        f.write(html)
 
 
 def load_state():
@@ -338,21 +325,20 @@ _LOGIN_ERROR = re.compile(r"""name=["']?err_flag["']?[^>]*value=["']?1\b""", re.
 def submit(opener, page_url, form, username, password):
     action = urllib.parse.urljoin(page_url, form["action"] or page_url)
     if not trusted_portal(action):
-        log("The login form sends to %s, which isn't the UoM portal; not sending the password." % action)
+        say("The login form sends to %s, which isn't the UoM portal; not sending the password." % action)
         return "no-form"
     data = fill_form(form["fields"], username, password)
-    log("Submitting the login form to %s (fields: %s)" % (action, ", ".join(n for n, _ in data)))
+    say("Submitting the login form to %s (fields: %s)" % (action, ", ".join(n for n, _ in data)))
     if form["method"] == "post":
         _, status, html = _request(opener, action, data, referer=page_url)
     else:
         sep = "&" if "?" in action else "?"
         _, status, html = _request(opener, action.split("#")[0] + sep + urllib.parse.urlencode(data),
                                    referer=page_url)
-    save_snapshot("portal-response.html", html)
     if _LOGIN_ERROR.search(html):  # the Cisco page comes back with err_flag=1 on a bad password
-        log("The portal says the username or password is wrong.")
+        say("The portal says the username or password is wrong.")
         return "rejected"
-    log("Portal answered HTTP %s" % status)
+    say("Portal answered HTTP %s" % status)
     return "sent"
 
 
@@ -366,14 +352,13 @@ def login(start_url, username, password):
     url = start_url
     for _hop in range(4):
         if not trusted_portal(url):
-            log("Ended up at %s, which isn't the UoM portal; stopping." % url)
+            say("Ended up at %s, which isn't the UoM portal; stopping." % url)
             return "no-form"
         try:
             url, _, html = _request(opener, url)
         except (urllib.error.URLError, OSError) as e:
-            log("Can't reach the login page yet (%s); will try again shortly." % getattr(e, "reason", e))
+            say("Can't reach the login page yet (%s); will try again shortly." % getattr(e, "reason", e))
             return "unreachable"
-        save_snapshot("portal-page.html", html)
 
         page = PageParser()
         page.feed(html)
@@ -382,13 +367,12 @@ def login(start_url, username, password):
             try:
                 return submit(opener, url, form, username, password)
             except (urllib.error.URLError, OSError) as e:
-                log("Sending the login failed (%s); will try again shortly." % getattr(e, "reason", e))
+                say("Sending the login failed (%s); will try again shortly." % getattr(e, "reason", e))
                 return "unreachable"
         if not page.links:
             break
         url = urllib.parse.urljoin(url, page.links[0])
-    log("No login form found on %s. The page is saved as %s for a closer look."
-        % (url, os.path.join(LOG_DIR, "portal-page.html")))
+    say("No login form found on %s." % url)
     return "no-form"
 
 
@@ -406,7 +390,7 @@ def close_login_popup(wait=15):
         if subprocess.run(["pgrep", "-f", CNA_PROCESS], capture_output=True).returncode == 0:
             time.sleep(1)  # let it finish opening so it doesn't come straight back
             subprocess.run(["pkill", "-f", CNA_PROCESS], capture_output=True)
-            log("Closed macOS's login pop-up (already logged in).")
+            say("Closed macOS's login pop-up (already logged in).")
             return
         if second < wait:
             time.sleep(1)
@@ -416,11 +400,11 @@ def close_login_popup(wait=15):
 
 def main():
     os.makedirs(DATA_DIR, exist_ok=True)
-    lock = open(os.path.join(DATA_DIR, ".lock"), "w")
+    lock = open(os.path.join(DATA_DIR, ".lock"), "a")  # "a": don't rewrite it on every run
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
-        log("Another check is already running.", quiet=True)
+        say("Another check is already running.")
         return 0
 
     # Right after waking, Wi-Fi may still be joining: keep checking for up to ~20 s on campus.
@@ -432,25 +416,25 @@ def main():
             time.sleep(2)
 
     if status == "online":
-        log("Internet is working; nothing to do.", quiet=True)
+        say("Internet is working; nothing to do.")
         if on_campus():  # a pop-up left over from a wake-up has nothing left to do
             close_login_popup(wait=0)
         return 0
     if not on_campus() and not TEST_HOSTS:
-        log("No internet (%s), but this isn't the UoM network; leaving it alone." % detail, quiet=True)
+        say("No internet (%s), but this isn't the UoM network; leaving it alone." % detail)
         return 0
 
     state = load_state()
     if not FORCE and time.time() - state.get("last_failure", 0) < FAIL_BACKOFF:
-        log("The last login was rejected less than 10 minutes ago; waiting before trying again.", quiet=True)
+        say("The last login was rejected less than 10 minutes ago; waiting before trying again.")
         return 0
 
     creds = credentials()
     if not creds:
-        log("No UoM username/password saved in the Keychain. Double-click \"Set Up.command\" to add them.")
+        say("No UoM username/password saved in the Keychain. Double-click \"Set Up.command\" to add them.")
         return 1
 
-    log("No internet on the UoM network (%s); logging in as %s" % (detail, creds[0]))
+    say("No internet on the UoM network (%s); logging in as %s" % (detail, creds[0]))
     for attempt in range(3):  # a just-woken Wi-Fi can drop the first try
         result = login(PORTAL_URL, *creds)
         if result != "unreachable":
@@ -462,17 +446,17 @@ def main():
         for _ in range(8):
             time.sleep(2)
             if probe()[0] == "online":
-                log("Logged in. Internet is working.")
+                say("Logged in. Internet is working.")
                 notify("Logged in to UoM Wi-Fi automatically ✓")
-                state.pop("last_failure", None)
-                save_state(state)
+                if state.pop("last_failure", None) is not None:
+                    save_state(state)
                 close_login_popup()
                 return 0
 
     first_failure = "last_failure" not in state
     state["last_failure"] = time.time()
     save_state(state)
-    log("Automatic login didn't get the internet working.")
+    say("Automatic login didn't get the internet working.")
     if first_failure and not FORCE:  # don't nag again every 10 minutes
         if result == "rejected":
             notify("UoM Wi-Fi didn't accept your username/password. Run \"Set Up\" again to fix it.")

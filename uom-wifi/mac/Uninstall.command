@@ -1,6 +1,6 @@
 #!/bin/zsh
 # Double-click to turn off automatic UoM Wi-Fi login and remove everything it installed
-# (the background job, the installed script, its logs, and the saved Keychain login).
+# (the background job, the installed script, and the saved Keychain login).
 
 LABEL="lk.uom.wifi-autologin"
 
