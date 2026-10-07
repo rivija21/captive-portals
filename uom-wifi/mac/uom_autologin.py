@@ -165,7 +165,7 @@ def dns_lookup(name, link):
     query = struct.pack(">HHHHHH", random.randrange(65536), 0x0100, 1, 0, 0, 0) + question
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         _bind(s, link)
-        s.settimeout(3)
+        s.settimeout(2)
         s.sendto(query, (link.dns, 53))
         reply = s.recv(4096)
     if reply[:2] != query[:2]:
@@ -246,7 +246,7 @@ def probe():
     opener = urllib.request.build_opener(_NoRedirect, _HTTPHandler())
     req = urllib.request.Request(CHECK_URL, headers={"User-Agent": UA, "Cache-Control": "no-cache"})
     try:
-        with opener.open(req, timeout=5) as resp:
+        with opener.open(req, timeout=3) as resp:
             body = resp.read(65536).decode("utf-8", "replace")
         if re.search(r"<title>\s*Success\s*</title>", body, re.I):
             return "online", ""
@@ -395,20 +395,21 @@ def login(start_url, username, password):
 CNA_PROCESS = "Captive Network Assistant.app/Contents/MacOS/"
 
 
-def close_login_popup():
-    """Closes macOS's own "Join UoM_Wireless" pop-up after we've logged in.
+def close_login_popup(wait=15):
+    """Closes macOS's own "Join UoM_Wireless" pop-up once we're logged in.
 
-    It opens at the same moment the script starts and never notices that the login
-    already happened, so it would sit there asking for the password. It can also
-    appear a few seconds late, so watch for it briefly.
+    It opens as the Mac wakes and never notices that the login already happened,
+    so it would sit there asking for the password. It can also appear a few
+    seconds late, so keep watching for `wait` seconds.
     """
-    for _ in range(15):
+    for second in range(wait + 1):
         if subprocess.run(["pgrep", "-f", CNA_PROCESS], capture_output=True).returncode == 0:
             time.sleep(1)  # let it finish opening so it doesn't come straight back
             subprocess.run(["pkill", "-f", CNA_PROCESS], capture_output=True)
             log("Closed macOS's login pop-up (already logged in).")
             return
-        time.sleep(1)
+        if second < wait:
+            time.sleep(1)
 
 
 # ----------------------------------------------------------------------- main
@@ -432,6 +433,8 @@ def main():
 
     if status == "online":
         log("Internet is working; nothing to do.", quiet=True)
+        if on_campus():  # a pop-up left over from a wake-up has nothing left to do
+            close_login_popup(wait=0)
         return 0
     if not on_campus() and not TEST_HOSTS:
         log("No internet (%s), but this isn't the UoM network; leaving it alone." % detail, quiet=True)
@@ -448,7 +451,11 @@ def main():
         return 1
 
     log("No internet on the UoM network (%s); logging in as %s" % (detail, creds[0]))
-    result = login(PORTAL_URL, *creds)
+    for attempt in range(3):  # a just-woken Wi-Fi can drop the first try
+        result = login(PORTAL_URL, *creds)
+        if result != "unreachable":
+            break
+        time.sleep(2)
     if result == "unreachable":
         return 0  # the network isn't ready yet; the next run (≤30 s) tries again
     if result == "sent":
